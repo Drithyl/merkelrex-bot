@@ -4,23 +4,12 @@
 #include "../headers/CSVReader.h"
 #include "../headers/Wallet.h"
 
-/*  To compile, cd to src and then: 
-    g++ --std=c++11 main.cpp *.cpp
+/*  To compile: 
+    g++ --std=c++11 ./src/*.cpp -o merkel.exe -O2
 */
 
 int main()
 {
     MerkelMain app{};
     app.init();
-    
-
-    /*
-    Wallet wallet;
-    wallet.insertCurrency("BTC", 10000);
-
-    std::cout << "Wallet has BTC " << wallet.containsCurrency("BTC", 10) << std::endl;
-    wallet.removeCurrency("BTC", 1000);
-    std::cout << wallet.toString() << std::endl;
-    */
-
 }

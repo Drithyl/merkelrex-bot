@@ -2,18 +2,26 @@
 #include "../headers/CSVReader.h"
 #include <iostream>
 #include <fstream>
+#include <chrono>
+#include <ctime>
+#include <map>
 
 CSVReader::CSVReader()
 {
     /** No need to initialize in the construction */
 }
 
-std::vector<OrderBookEntry> CSVReader::readCSV(std::string csvFilename)
+// Use shared smart pointers to the objects so we don't have to worry about freeing the memory manually
+std::list<std::shared_ptr<OrderBookEntry>> CSVReader::readCSV(std::string csvFilename)
 {
-    std::vector<OrderBookEntry> entries;
+    auto start = std::chrono::system_clock::now();
+
+    // Our list to store entries
+    std::list<std::shared_ptr<OrderBookEntry>> entries;
 
     std::ifstream csvFile{csvFilename};
     std::string line;
+    std::vector<std::string> tokenizedString;
 
     if (csvFile.is_open())
     {
@@ -21,8 +29,11 @@ std::vector<OrderBookEntry> CSVReader::readCSV(std::string csvFilename)
         {
             try
             {
-                OrderBookEntry obe = stringsToOBE( tokenise(line, ',') );
-                entries.push_back(obe);
+                // Create our entry and assign a pointer to it
+                tokenizedString.clear();
+                tokenizedString = tokenise(line, ',');
+                std::shared_ptr<OrderBookEntry> entryPointer = stringsToOBE( tokenizedString );
+                entries.push_back(entryPointer);
             }
 
             catch(const std::exception& e)
@@ -30,9 +41,19 @@ std::vector<OrderBookEntry> CSVReader::readCSV(std::string csvFilename)
                 std::cout << "CSVReader::readCSV read bad data." << std::endl;
             }
         }
+
+        csvFile.close();
     }
 
-    std::cout << "CSVReader::readCSV read " << entries.size() << " entries." << std::endl;
+    // Record the current date time to compare it to the one before
+    auto end = std::chrono::system_clock::now();
+
+    // Get the elapsed seconds from when the bot started trading till now
+    std::chrono::duration<double> elapsed_seconds = end-start;
+    
+    // Print the amount of time it took for the bot to trade
+    std::cout << "CSVReader::readCSV read " << entries.size() << " entries in " << elapsed_seconds.count() << " seconds" << std::endl;
+
     return entries;
 }
 
@@ -73,7 +94,7 @@ std::vector<std::string> CSVReader::tokenise(std::string csvLine, char separator
     return tokens;
 }
 
-OrderBookEntry CSVReader::stringsToOBE(std::vector<std::string> tokens)
+std::shared_ptr<OrderBookEntry> CSVReader::stringsToOBE(std::vector<std::string> tokens)
 {
     double price, amount;
 
@@ -98,18 +119,16 @@ OrderBookEntry CSVReader::stringsToOBE(std::vector<std::string> tokens)
         throw e;
     }
 
-    OrderBookEntry obe{
+    return std::make_shared<OrderBookEntry>(
         price,
         amount,
         tokens[0],
         tokens[1],
         OrderBookEntry::stringToOrderBookType(tokens[2])
-    };
-
-    return obe;
+    );
 }
 
-OrderBookEntry CSVReader::stringsToOBE(
+std::shared_ptr<OrderBookEntry> CSVReader::stringsToOBE(
     std::string priceString, 
     std::string amountString, 
     std::string timestamp, 
@@ -131,13 +150,11 @@ OrderBookEntry CSVReader::stringsToOBE(
         throw e;
     }
 
-    OrderBookEntry obe{
+    return std::make_shared<OrderBookEntry>(
         price,
         amount,
         timestamp,
         product,
         orderType
-    };
-
-    return obe;
+    );
 }

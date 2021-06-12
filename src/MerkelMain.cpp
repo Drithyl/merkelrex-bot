@@ -1,6 +1,9 @@
 
 #include <iostream>
 #include <vector>
+#include <memory>
+#include <chrono>
+#include <ctime>
 #include "../headers/MerkelMain.h"
 #include "../headers/CSVReader.h"
 
@@ -14,7 +17,7 @@ void MerkelMain::init()
     int input;
     currentTime = orderBook.getEarliestTime();
 
-    wallet.insertCurrency("BTC", 10);
+    std::cout << "Initialized wallet: \n\n" << wallet.toString() << std::endl;
 
     while(true)
     {
@@ -34,16 +37,20 @@ void MerkelMain::printMenu()
 
     std::cout << "4: Make a bid" << std::endl;
 
-    std::cout << "5: Print wallet" << std::endl;
+    std::cout << "5: Let Bot trade this timestamp" << std::endl;
 
-    std::cout << "6: Continue" << std::endl;
+    std::cout << "6: Let Bot take over the rest of the simulation" << std::endl;
 
-    std::cout << "7: Exit" << std::endl;
+    std::cout << "7: Print wallet" << std::endl;
+
+    std::cout << "8: Continue" << std::endl;
+
+    std::cout << "9: Exit" << std::endl;
 
     std::cout << "=========================" << std::endl;
     std::cout << "Current time is: " << currentTime << std::endl;
 
-    std::cout << "Type in 1-7" << std::endl;
+    std::cout << "Type in 1-9" << std::endl;
 }
 
 int MerkelMain::getUserOption()
@@ -77,7 +84,7 @@ void MerkelMain::printMarketStats()
     for (std::string const& product : orderBook.getKnownProducts())
     {
         std::cout << "Product: " << product << std::endl;
-        std::vector<OrderBookEntry> entries = orderBook.getOrders(OrderBookType::ask, product, currentTime);
+        std::list<std::shared_ptr<OrderBookEntry>> entries = orderBook.getCurrentOrders(OrderBookType::ask, product);
 
         std::cout << "Asks seen: " << entries.size() << std::endl;
         std::cout << "Max ask: " << OrderBook::getHighPrice(entries) << std::endl;
@@ -101,20 +108,22 @@ void MerkelMain::enterAsk()
     {
         try
         {
-            OrderBookEntry obe = CSVReader::stringsToOBE(
+            std::vector<std::string> currencies = CSVReader::tokenise(tokens[0], '/');
+            std::shared_ptr<OrderBookEntry> obePointer = CSVReader::stringsToOBE(
                 tokens[1],
                 tokens[2],
                 currentTime,
                 tokens[0],
                 OrderBookType::ask
             );
+            
+            obePointer->username = "simuser";
 
-            obe.username = "simuser";
-
-            if (wallet.canFulfillOrder(obe))
+            if (wallet.canFulfillOrder(*obePointer))
             {
                 std::cout << "Wallet looks good. " << std::endl;
-                orderBook.insertOrder(obe);
+                orderBook.insertOrder(obePointer);
+                wallet.lockCurrency(currencies[0], obePointer->amount);
             }
 
             else std::cout << "Insufficient funds. " << std::endl;
@@ -141,9 +150,12 @@ void MerkelMain::enterBid()
 
     else
     {
+        std::cout << "MerkelMain::enterBid Got the input, converting... " << std::endl;
+
         try
         {
-            OrderBookEntry obe = CSVReader::stringsToOBE(
+            std::vector<std::string> currencies = CSVReader::tokenise(tokens[0], '/');
+            std::shared_ptr<OrderBookEntry> obePointer = CSVReader::stringsToOBE(
                 tokens[1],
                 tokens[2],
                 currentTime,
@@ -151,12 +163,16 @@ void MerkelMain::enterBid()
                 OrderBookType::bid
             );
 
-            obe.username = "simuser";
+            std::cout << "MerkelMain::enterBid Converted input, checking wallet... " << std::endl;
 
-            if (wallet.canFulfillOrder(obe))
+            obePointer->username = "simuser";
+
+            if (wallet.canFulfillOrder(*obePointer))
             {
-                std::cout << "Wallet looks good. " << std::endl;
-                orderBook.insertOrder(obe);
+                std::cout << "Wallet looks good. Inserting order..." << std::endl;
+                orderBook.insertOrder(obePointer);
+                wallet.lockCurrency(currencies[1], obePointer->amount * obePointer->price);
+                std::cout << "Order was inserted." << std::endl;
             }
 
             else std::cout << "Insufficient funds. " << std::endl;
@@ -169,34 +185,94 @@ void MerkelMain::enterBid()
     }
 }
 
+// Let bot analyze and place trades for the current timestamp
+void MerkelMain::letBotTrade()
+{
+    // Initialize an empty list that will be filled by the function below
+    std::list<std::shared_ptr<OrderBookEntry>> listOfOrdersPlaced;
+
+    // Pass the orderbook for the bot to process the current orders and place
+    // newly created orders into the listOfOrdersPlaced
+    bot.processNewTimestamp(orderBook, listOfOrdersPlaced);
+
+    // Iterate through bot created orders and record them
+    for (std::shared_ptr<OrderBookEntry> orderPlaced : listOfOrdersPlaced)
+    {
+        orderBook.insertOrder(orderPlaced);
+        bot.recordOrder(*orderPlaced);
+    }
+}
+
+// Bot will trade in an automated fashion throughout the entirety of the
+// remaining timestamps until it reaches the end, at which point it will
+// create a log file in the provided path below
+void MerkelMain::letBotTakeOver()
+{
+    // Record the current date time for performance measuring
+    auto start = std::chrono::system_clock::now();
+    std::string firstTimestamp = orderBook.getEarliestTime();
+
+    std::cout << "Bot begins to trade..." << std::endl;
+
+    // Trade current timestamp and move to the next until we reach the first one again
+    do
+    {
+        this->letBotTrade();
+        this->goToNextTimestamp();
+
+    } while (currentTime > firstTimestamp);
+
+    // Dump the log into the given path
+    bot.writeLogToFile("./logs/");
+
+    // Record the current date time to compare it to the one before
+    auto end = std::chrono::system_clock::now();
+
+    // Get the elapsed seconds from when the bot started trading till now
+    std::chrono::duration<double> elapsed_seconds = end-start;
+    
+    // Print the amount of time it took for the bot to trade
+    std::cout << "Finished bot trading in " << elapsed_seconds.count() << " seconds. Total sales matched: " << totalSales << std::endl;
+}
+
 void MerkelMain::printWallet()
 {
     std::cout << wallet.toString() << std::endl;
 }
 
-void MerkelMain::goToNextTimeframe()
+// Advance to the next timestamp, first matching all the current orders of each product and
+// recording all the new sales, as well as updating the currencies in the wallet and logging them
+void MerkelMain::goToNextTimestamp()
 {
-    std::cout << "Going to next time frame." << std::endl;
+    auto start = std::chrono::system_clock::now();
 
     for (std::string& product : orderBook.getKnownProducts())
     {
-        std::cout << "Matching " << product << std::endl;
-        std::vector<OrderBookEntry> sales = orderBook.matchAsksToBids(product, currentTime);
-        std::cout << "Sales: " << sales.size() << std::endl;
+        // To match orders current and past
+        std::list<OrderBookEntry> sales = orderBook.matchCurrentAndPreviousOrders(product);
+
+        // To match orders only within the same timestamp, not considering past ones
+        //std::list<OrderBookEntry> sales = orderBook.matchOnlyCurrentOrders(product);
 
         for (OrderBookEntry& sale : sales)
         {
-            std::cout << "Sale price: " << sale.price << " amount: " << sale.amount << std::endl;
+            totalSales++;
 
             if (sale.username != "dataset")
             {
                 //update wallet
                 wallet.processSale(sale);
-            } 
+                bot.recordSale(sale);
+            }
         }
     }
 
-    currentTime = orderBook.getNextTime(currentTime);
+    auto end = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end-start;
+    std::cout << "Timestamp " << currentTime << " (" << timestampIndex << ") completed in " << elapsed_seconds.count() << " seconds." << std:: endl;
+    
+    timestampIndex++;
+    currentTime = orderBook.goToNextTimestamp();
 }
 
 void MerkelMain::exitApp()
@@ -235,15 +311,26 @@ void MerkelMain::processOption(int userOption)
 
     else if (userOption == 5)
     {
-        printWallet();
+        letBotTrade();
+        this->goToNextTimestamp();
     }
 
     else if (userOption == 6)
     {
-        goToNextTimeframe();
+        letBotTakeOver();
     }
 
     else if (userOption == 7)
+    {
+        printWallet();
+    }
+
+    else if (userOption == 8)
+    {
+        goToNextTimestamp();
+    }
+
+    else if (userOption == 9)
     {
         exitApp();
     }

@@ -23,7 +23,11 @@ OrderBookEntry::OrderBookEntry(
     orderType(_orderType), 
     username(_username)
 {
+    if (_price < 0)
+        throw std::exception{};
 
+    if (_amount < 0)
+        throw std::exception{};
 }
 
 OrderBookType OrderBookEntry::stringToOrderBookType(std::string s)
@@ -37,17 +41,17 @@ OrderBookType OrderBookEntry::stringToOrderBookType(std::string s)
     else return OrderBookType::unknown;
 }
 
-bool OrderBookEntry::compareByTimestamp(OrderBookEntry& e1, OrderBookEntry& e2)
+bool OrderBookEntry::compareByTimestamp(const OrderBookEntry& e1, const OrderBookEntry& e2)
 {
     return e1.timestamp < e2.timestamp;
 }
 
-bool OrderBookEntry::compareByPriceAsc(OrderBookEntry& e1, OrderBookEntry& e2)
+bool OrderBookEntry::compareByPriceAsc(const std::shared_ptr<OrderBookEntry>& e1, const std::shared_ptr<OrderBookEntry>& e2)
 {
-    return e1.price < e2.price;
+    return e1->price < e2->price;
 }
 
-bool OrderBookEntry::compareByPriceDesc(OrderBookEntry& e1, OrderBookEntry& e2)
+bool OrderBookEntry::compareByPriceDesc(const std::shared_ptr<OrderBookEntry>& e1, const std::shared_ptr<OrderBookEntry>& e2)
 {
-    return e1.price > e2.price;
+    return e1->price > e2->price;
 }
